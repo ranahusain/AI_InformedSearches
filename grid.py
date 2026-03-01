@@ -13,7 +13,7 @@ WIN_W = COLS * CELL + PANEL_W
 WIN_H = ROWS * CELL
 
 FPS = 30
-STEP_DELAY = 120
+STEP_DELAY = 120   # ms between animation steps
 
 # Cell types
 EMPTY, WALL, START, GOAL = 0, 1, 2, 3
@@ -25,9 +25,9 @@ GRAY = (160, 160, 160)
 START_C = (50,  200,  80)   # green
 GOAL_C = (220,  50,  50)   # red
 WALL_C = (40,   40,  40)
-FRONT_C = (255, 220,   0)   # yellow         frontier
-VISIT_C = (100, 149, 237)   # blue           visited
-PATH_C = (50,  220, 130)   # bright green   final path
+FRONT_C = (255, 220,   0)   # yellow  – frontier
+VISIT_C = (100, 149, 237)   # blue    – visited
+PATH_C = (50,  220, 130)   # bright green – final path
 PANEL_C = (30,  30,  30)
 BTN_C = (70,  70,  70)
 BTN_HOV = (110, 110, 110)
@@ -54,6 +54,55 @@ def build_grid():
     return grid
 
 
+def pixel_to_cell(mx, my):
+    """Convert mouse pixel position to (row, col). Returns None if outside grid."""
+    if mx < 0 or mx >= COLS * CELL or my < 0 or my >= ROWS * CELL:
+        return None
+    return (my // CELL, mx // CELL)
+
+
+def toggle_wall(grid, mx, my, drag_mode=None):
+    """
+    Toggle a wall at the mouse position.
+
+    drag_mode: None  = first click, auto-detect (place or erase)
+               True  = dragging in place mode  (set WALL)
+               False = dragging in erase mode  (set EMPTY)
+
+    Returns:
+        (new_drag_mode, changed)
+        new_drag_mode – True/False to pass back on next drag call
+        changed       – True if the grid was modified
+    """
+    cell = pixel_to_cell(mx, my)
+    if cell is None:
+        return drag_mode, False
+
+    r, c = cell
+    ct = grid[r][c]
+
+    # Never overwrite Start or Goal
+    if ct in (START, GOAL):
+        return drag_mode, False
+
+    if drag_mode is None:
+        # First click: decide whether we're placing or erasing
+        if ct == EMPTY:
+            grid[r][c] = WALL
+            return True, True
+        elif ct == WALL:
+            grid[r][c] = EMPTY
+            return False, True
+        return drag_mode, False
+    else:
+        # Dragging: apply consistent mode
+        target = WALL if drag_mode else EMPTY
+        if ct != target and ct not in (START, GOAL):
+            grid[r][c] = target
+            return drag_mode, True
+        return drag_mode, False
+
+
 def get_neighbors(pos, grid):
     r, c = pos
     result = []
@@ -72,9 +121,9 @@ def euclidean(a, b):
     return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
 
-# Drawing
+# ── Drawing ──────────────────────────────────────────────────────────────────
 
-def draw_grid(surf, grid, visited, frontier, path_set):
+def draw_grid(surf, grid, visited, frontier, path_set, hover_cell=None, editable=False):
     for r in range(ROWS):
         for c in range(COLS):
             x, y = c * CELL, r * CELL
@@ -94,6 +143,14 @@ def draw_grid(surf, grid, visited, frontier, path_set):
             else:
                 col = WHITE
             pygame.draw.rect(surf, col, (x + 1, y + 1, CELL - 2, CELL - 2))
+
+            # Hover highlight so user knows they can click
+            if editable and hover_cell == (r, c) and ct not in (START, GOAL):
+                hover_col = (80, 80, 80) if ct == WALL else (210, 210, 210)
+                pygame.draw.rect(
+                    surf, hover_col, (x + 1, y + 1, CELL - 2, CELL - 2))
+                pygame.draw.rect(surf, (255, 200, 0),
+                                 (x + 1, y + 1, CELL - 2, CELL - 2), 2)
 
     for i in range(ROWS + 1):
         pygame.draw.line(surf, GRAY, (0, i * CELL), (COLS * CELL, i * CELL))
@@ -148,6 +205,7 @@ def draw_panel(surf, font, algo_name, heur_name,
     txt(state.upper(), px + 8, y, status_col)
     y += 24
 
+    # Legend
     legend = [
         (START_C, "Start"),
         (GOAL_C,  "Goal"),
